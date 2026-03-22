@@ -1,6 +1,8 @@
-streamlit
-pandas
-matplotlib
-scikit-learn
-seaborn
-reportlab
+streamlit>=1.30.0
+pandas>=2.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+seaborn>=0.12.2
+scikit-learn>=1.3.0
+plotly>=5.20.0
+reportlab>=4.0
