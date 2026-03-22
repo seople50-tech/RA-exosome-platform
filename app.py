@@ -1,100 +1,104 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestClassifier
 import seaborn as sns
+from sklearn.decomposition import PCA
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+import tempfile
 
-st.set_page_config(page_title="AI Clinical + Exosome Analysis", layout="wide")
+# =====================
+# UI 優化：背景 + 標題
+# =====================
+st.markdown("""
+<style>
+.main {
+    background-color: #f5f7fa;
+}
+h1 {
+    color: #2c3e50;
+}
+</style>
+""", unsafe_allow_html=True)
 
-st.title("🧬 AI 臨床 + 外泌體分析平台")
-st.write("上傳 CSV，自動分析臨床指標 + miRNA 特徵")
+st.title("🧬 RA Exosome AI Platform")
+st.caption("Clinical + miRNA Analysis System")
 
-uploaded_file = st.file_uploader("📂 上傳 CSV", type="csv")
+# =====================
+# CSV 上傳
+# =====================
+st.header("📂 上傳臨床資料 CSV")
+uploaded_file = st.file_uploader("請上傳 CSV 檔案", type=["csv"])
 
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
 
-    # =====================
-    # 1️⃣ 臨床風險分析
-    # =====================
-    st.subheader("🩺 臨床風險評估")
-
-    def risk_score(row):
-        score = 0
-        if row["glucose"] < 70 or row["glucose"] > 100:
-            score += 2
-        if row["cholesterol"] < 125 or row["cholesterol"] > 200:
-            score += 1
-        if row["crp"] > 3:
-            score += 3
-        if row["esr"] > 20:
-            score += 2
-        return score
-
-    df["risk_score"] = df.apply(risk_score, axis=1)
-
-    def risk_level(score):
-        if score <= 2:
-            return "Low"
-        elif score <= 5:
-            return "Medium"
-        else:
-            return "High"
-
-    df["risk_level"] = df["risk_score"].apply(risk_level)
-
-    st.dataframe(df[["patient_id", "risk_score", "risk_level"]])
+    st.subheader("原始資料")
+    st.dataframe(df.head())
 
     # =====================
-    # 2️⃣ PCA 分析
+    # AI 分析示範：風險計算
     # =====================
-    st.subheader("🧬 miRNA PCA 分析")
+    st.subheader("🧠 風險評分計算")
+    # 假設有個欄位 'miRNA_score' 用來計算風險
+    if 'miRNA_score' not in df.columns:
+        df['miRNA_score'] = pd.np.random.rand(len(df)) * 10  # 生成示範數據
 
-    mirna_cols = [col for col in df.columns if "miRNA" in col]
-    X = df[mirna_cols]
+    df['risk_score'] = df['miRNA_score']
+    df['risk_level'] = df['risk_score'].apply(lambda x: "High" if x > 5 else "Low")
 
-    pca = PCA(n_components=2)
-    pca_result = pca.fit_transform(X)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("平均風險分數", round(df["risk_score"].mean(), 2))
+    with col2:
+        st.metric("高風險人數", (df["risk_level"]=="High").sum())
 
-    df["pca1"] = pca_result[:,0]
-    df["pca2"] = pca_result[:,1]
-
-    fig, ax = plt.subplots()
-    for label in df["label"].unique():
-        subset = df[df["label"] == label]
-        ax.scatter(subset["pca1"], subset["pca2"], label=f"Label {label}")
-    ax.legend()
-    ax.set_title("PCA of miRNA")
-
-    st.pyplot(fig)
+    st.subheader("風險資料表")
+    st.dataframe(df[['patient_id','risk_score','risk_level']])
 
     # =====================
-    # 3️⃣ Top miRNA 分析
+    # Heatmap
     # =====================
-    st.subheader("🔥 關鍵 miRNA 特徵")
-
-    model = RandomForestClassifier()
-    model.fit(X, df["label"])
-
-    importances = pd.Series(model.feature_importances_, index=mirna_cols)
-    top10 = importances.sort_values(ascending=False).head(10)
-
-    st.bar_chart(top10)
+    st.subheader("📊 Heatmap")
+    plt.figure(figsize=(6,4))
+    sns.heatmap(df.select_dtypes(include='number').corr(), annot=True, cmap="coolwarm")
+    st.pyplot(plt)
 
     # =====================
-    # 4️⃣ Heatmap
+    # PCA
     # =====================
-    st.subheader("🌡️ miRNA Heatmap")
+    st.subheader("🔹 PCA 分析")
+    numeric_cols = df.select_dtypes(include='number').columns
+    if len(numeric_cols) >= 2:
+        pca = PCA(n_components=2)
+        components = pca.fit_transform(df[numeric_cols])
+        df_pca = pd.DataFrame(components, columns=['PC1','PC2'])
+        st.write(df_pca.head())
 
-    fig2, ax2 = plt.subplots(figsize=(10,5))
-    sns.heatmap(df[mirna_cols].iloc[:20], cmap="coolwarm", ax=ax2)
-    st.pyplot(fig2)
+        plt.figure(figsize=(6,4))
+        plt.scatter(df_pca['PC1'], df_pca['PC2'], c=df['risk_score'], cmap='coolwarm')
+        plt.colorbar(label='Risk Score')
+        st.pyplot(plt)
+    else:
+        st.info("數值欄位不足，無法做 PCA")
 
     # =====================
-    # 5️⃣ 下載報表
+    # PDF 報告下載
     # =====================
-    st.subheader("📥 下載報表")
+    st.subheader("📄 下載 PDF 報告")
+    def generate_pdf(df):
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        doc = SimpleDocTemplate(temp_file.name)
+        styles = getSampleStyleSheet()
+        content = []
+        content.append(Paragraph("Clinical AI Analysis Report", styles["Title"]))
+        for i, row in df.iterrows():
+            text = f"{row.get('patient_id','NA')} - Risk: {row['risk_level']} (Score: {row['risk_score']:.2f})"
+            content.append(Paragraph(text, styles["Normal"]))
+        doc.build(content)
+        return temp_file.name
 
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("下載完整分析 CSV", csv, "analysis_report.csv")
+    pdf_file = generate_pdf(df)
+    with open(pdf_file, "rb") as f:
+        st.download_button("📄 下載 PDF 報告", f, "report.pdf")
